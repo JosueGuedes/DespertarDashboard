@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Painel de planilhas</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 16px;
+        background: #f6f7f9;
+        color: #222;
+      }
+      h1 {
+        font-size: 1.3rem;
+      }
+      section {
+        background: #fff;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 16px;
+        box-shadow: 0 1px 3px #0002;
+        overflow-x: auto;
+      }
+      h2 {
+        margin: 0 0 8px;
+        font-size: 1.05rem;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      td {
+        border: 1px solid #ddd;
+        padding: 6px 10px;
+      }
+      .flash {
+        animation: flash 1.2s;
+      }
+      @keyframes flash {
+        from {
+          background: #fff3a8;
+        }
+        to {
+          background: transparent;
+        }
+      }
+      #status {
+        font-size: 0.8rem;
+        color: #888;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Painel de planilhas <span id="status">conectando…</span></h1>
+    <div id="painel"></div>
+
+    <script>
+      const painel = document.getElementById("painel");
+      const status = document.getElementById("status");
+      const secoes = {};
+
+      function render(name, data) {
+        let sec = secoes[name];
+        if (!sec) {
+          sec = document.createElement("section");
+          sec.innerHTML = "<h2></h2><table></table>";
+          sec.querySelector("h2").textContent = name;
+          painel.appendChild(sec);
+          secoes[name] = sec;
+        }
+        const table = sec.querySelector("table");
+        table.innerHTML = "";
+        for (const linha of data) {
+          const tr = table.insertRow();
+          for (const valor of linha) tr.insertCell().textContent = valor; // textContent evita XSS
+        }
+        sec.classList.remove("flash");
+        void sec.offsetWidth; // reinicia a animação
+        sec.classList.add("flash");
+      }
+
+      const es = new EventSource("/events");
+      es.onopen = () => (status.textContent = "● ao vivo");
+      es.onerror = () => (status.textContent = "reconectando…");
+      es.onmessage = (e) => {
+        const { name, data } = JSON.parse(e.data);
+        render(name, data);
+      };
+    </script>
+  </body>
+</html>
