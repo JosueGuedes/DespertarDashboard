@@ -5,87 +5,285 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Painel de planilhas</title>
     <style>
+      :root {
+        --bg: #f6f7f9;
+        --card: #ffffff;
+        --text: #222222;
+        --muted: #777777;
+        --border: #e3e5e8;
+        --head: #f0f2f5;
+        --accent: #2e7d32;
+        --danger: #c62828;
+        --flash: #fff3a8;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #15171a;
+          --card: #1f2227;
+          --text: #e8e8e8;
+          --muted: #9aa0a6;
+          --border: #343840;
+          --head: #272b31;
+          --accent: #66bb6a;
+          --danger: #ef5350;
+          --flash: #5c5320;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
       body {
         font-family: system-ui, sans-serif;
-        margin: 16px;
-        background: #f6f7f9;
-        color: #222;
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 16px;
+        margin-bottom: 16px;
       }
       h1 {
         font-size: 1.3rem;
+        margin: 0;
       }
-      section {
-        background: #fff;
+      .meta {
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      #status.on {
+        color: var(--accent);
+      }
+      #status.off {
+        color: var(--danger);
+      }
+
+      .fonte {
+        margin-bottom: 24px;
+      }
+      .fonte > h2 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 1.15rem;
+        margin: 0 0 10px;
+      }
+      .abrir {
+        display: inline-flex;
+        opacity: 0.7;
+        transition: opacity 0.15s;
+      }
+      .abrir:hover,
+      .abrir:focus-visible {
+        opacity: 1;
+      }
+      .abrir img {
+        width: 18px;
+        height: 18px;
+        display: block;
+      }
+
+      .grupos {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 16px;
+        align-items: start;
+      }
+
+      .grupo {
+        background: var(--card);
+        border: 1px solid var(--border);
         border-radius: 8px;
-        padding: 12px;
-        margin-bottom: 16px;
+        overflow: hidden;
         box-shadow: 0 1px 3px #0002;
-        overflow-x: auto;
       }
-      h2 {
-        margin: 0 0 8px;
-        font-size: 1.05rem;
+      .grupo h3 {
+        margin: 0;
+        padding: 10px 12px;
+        font-size: 0.95rem;
+        background: var(--head);
+        border-bottom: 1px solid var(--border);
       }
+
       table {
         border-collapse: collapse;
         width: 100%;
       }
+      th,
       td {
-        border: 1px solid #ddd;
-        padding: 6px 10px;
+        padding: 8px 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
       }
-      .flash {
-        animation: flash 1.2s;
+      tr:last-child th,
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      th {
+        font-weight: 500;
+        color: var(--muted);
+        width: 45%;
+      }
+      td {
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      td.vazio {
+        color: var(--muted);
+        font-weight: 400;
+      }
+
+      tr.flash {
+        animation: flash 1.4s ease-out;
       }
       @keyframes flash {
         from {
-          background: #fff3a8;
+          background: var(--flash);
         }
         to {
           background: transparent;
         }
       }
-      #status {
-        font-size: 0.8rem;
-        color: #888;
+      @media (prefers-reduced-motion: reduce) {
+        tr.flash {
+          animation: none;
+        }
+      }
+
+      #vazio {
+        color: var(--muted);
       }
     </style>
   </head>
   <body>
-    <h1>Painel de planilhas <span id="status">conectando…</span></h1>
-    <div id="painel"></div>
+    <header>
+      <h1>Painel de planilhas</h1>
+      <span id="status" class="meta off" role="status" aria-live="polite"
+        >conectando…</span
+      >
+      <span id="atualizado" class="meta"></span>
+    </header>
+
+    <div id="painel"><p id="vazio">Aguardando dados…</p></div>
 
     <script>
       const painel = document.getElementById("painel");
-      const status = document.getElementById("status");
-      const secoes = {};
+      const statusEl = document.getElementById("status");
+      const atualizadoEl = document.getElementById("atualizado");
 
-      function render(name, data) {
-        let sec = secoes[name];
-        if (!sec) {
-          sec = document.createElement("section");
-          sec.innerHTML = "<h2></h2><table></table>";
-          sec.querySelector("h2").textContent = name;
-          painel.appendChild(sec);
-          secoes[name] = sec;
+      // Referências aos elementos já criados, para atualizar sem recriar a tabela
+      const fontes = {}; // fonte -> { grupos: HTMLElement, mapa: { grupo -> { tbody, linhas: { campo -> {tr, td, texto} } } } }
+
+      function criar(tag, props = {}, ...filhos) {
+        const el = document.createElement(tag);
+        Object.assign(el, props); // textContent evita XSS
+        el.append(...filhos);
+        return el;
+      }
+
+      function obterFonte(nome, url) {
+        if (fontes[nome]) return fontes[nome];
+        const grupos = criar("div", { className: "grupos" });
+        const titulo = criar("h2", {}, nome);
+
+        // Ícone ao lado do nome, abre a planilha em outra aba
+        if (url && url.startsWith("https://")) {
+          titulo.append(
+            criar(
+              "a",
+              {
+                className: "abrir",
+                href: url,
+                target: "_blank",
+                rel: "noopener noreferrer",
+                title: "Abrir planilha em nova aba",
+              },
+              criar("img", {
+                src: "/opentab.png",
+                alt: "Abrir planilha de " + nome,
+              }),
+            ),
+          );
         }
-        const table = sec.querySelector("table");
-        table.innerHTML = "";
-        for (const linha of data) {
-          const tr = table.insertRow();
-          for (const valor of linha) tr.insertCell().textContent = valor; // textContent evita XSS
+
+        const secao = criar("section", { className: "fonte" }, titulo, grupos);
+        document.getElementById("vazio")?.remove();
+        painel.appendChild(secao);
+        return (fontes[nome] = { grupos, mapa: {} });
+      }
+
+      function obterGrupo(fonte, nome) {
+        if (fonte.mapa[nome]) return fonte.mapa[nome];
+        const tbody = criar("tbody");
+        const card = criar(
+          "div",
+          { className: "grupo" },
+          criar("h3", { textContent: nome }),
+          criar("table", {}, tbody),
+        );
+        fonte.grupos.appendChild(card);
+        return (fonte.mapa[nome] = { tbody, linhas: {} });
+      }
+
+      function obterLinha(grupo, campo) {
+        if (grupo.linhas[campo]) return grupo.linhas[campo];
+        const th = criar("th", { textContent: campo, scope: "row" });
+        const td = criar("td");
+        const tr = criar("tr", {}, th, td);
+        grupo.tbody.appendChild(tr);
+        return (grupo.linhas[campo] = { tr, td, texto: null });
+      }
+
+      // Junta as células não vazias do intervalo em um único texto
+      function formatar(data) {
+        const valores = data
+          .flat()
+          .map((v) => String(v).trim())
+          .filter(Boolean);
+        return valores.length ? valores.join(" · ") : "—";
+      }
+
+      function render({ source, group, field, data, url }) {
+        const grupo = obterGrupo(obterFonte(source, url), group || "Geral");
+        const linha = obterLinha(grupo, field);
+        const texto = formatar(data);
+
+        if (linha.texto === texto) return; // nada mudou
+        const primeiraVez = linha.texto === null;
+        linha.texto = texto;
+        linha.td.textContent = texto;
+        linha.td.classList.toggle("vazio", texto === "—");
+
+        if (!primeiraVez) {
+          // só destaca mudanças reais, não a carga inicial
+          linha.tr.classList.remove("flash");
+          void linha.tr.offsetWidth; // reinicia a animação
+          linha.tr.classList.add("flash");
         }
-        sec.classList.remove("flash");
-        void sec.offsetWidth; // reinicia a animação
-        sec.classList.add("flash");
+      }
+
+      function marcarStatus(texto, ligado) {
+        statusEl.textContent = texto;
+        statusEl.classList.toggle("on", ligado);
+        statusEl.classList.toggle("off", !ligado);
       }
 
       const es = new EventSource("/events");
-      es.onopen = () => (status.textContent = "● ao vivo");
-      es.onerror = () => (status.textContent = "reconectando…");
+      es.onopen = () => marcarStatus("● ao vivo", true);
+      es.onerror = () => marcarStatus("reconectando…", false); // o EventSource tenta de novo sozinho
       es.onmessage = (e) => {
-        const { name, data } = JSON.parse(e.data);
-        render(name, data);
+        try {
+          render(JSON.parse(e.data));
+          atualizadoEl.textContent =
+            "Última mudança: " + new Date().toLocaleTimeString("pt-BR");
+        } catch (err) {
+          console.error("Mensagem inválida:", e.data, err);
+        }
       };
     </script>
   </body>
